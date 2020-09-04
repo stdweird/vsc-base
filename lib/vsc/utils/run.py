@@ -138,6 +138,7 @@ class DummyFunction(object):
 class Run(object):
     """Base class for static run method"""
     INIT_INPUT_CLOSE = True
+    INIT_INPUT_FLUSH = False
     USE_SHELL = True
     SHELL = SHELL  # set the shell via the module constant
     KILL_PGID = False
@@ -372,8 +373,16 @@ class Run(object):
             self.log.exception("_init_process: init Popen shellcmd %s failed: %s", self._shellcmd, err)
             raise
 
+    def _init_get_stdin(self):
+        """Return the fd to write to"""
+        self.log.debug("_init_get_stdin: process stdin used")
+        return self._process.stdin
+
     def _init_input(self):
         """Handle input, if any in a simple way"""
+
+        stdin = self._init_get_stdin()
+
         if self.input is not None:  # allow empty string (whatever it may mean)
             # in Python 3, stdin.write requires a bytestring
             if is_py3() and is_string(self.input):
@@ -381,15 +390,21 @@ class Run(object):
             else:
                 inp = self.input
             try:
-                self._process.stdin.write(inp)
+                stdin.write(inp)
             except Exception:
                 self.log.raiseException("_init_input: Failed write input %s to process" % self.input)
 
-        if self.INIT_INPUT_CLOSE:
-            self._process.stdin.close()
-            self.log.debug("_init_input: process stdin closed")
+        if self.INIT_INPUT_FLUSH:
+            stdin.flush()
+            self.log.debug("_init_input: stdin flushed")
         else:
-            self.log.debug("_init_input: process stdin NOT closed")
+            self.log.debug("_init_input: stdin NOT flushed")
+
+        if self.INIT_INPUT_CLOSE:
+            stdin.close()
+            self.log.debug("_init_input: stdin closed")
+        else:
+            self.log.debug("_init_input: stdin NOT closed")
 
     def _wait_for_process(self):
         """The main loop
@@ -771,6 +786,27 @@ class RunPty(Run):
 
 class RunNoShellPty(RunNoShell, RunPty):
     """Pty support (eg for screen sessions)"""
+    pass
+
+
+class RunPty2(Run):
+    """Pty support"""
+    def _init_get_stdin(self):
+        """Return the fd to write to"""
+        self.log.debug("_init_get_stdin: pty master used")
+        return self._pty_master
+
+    def _make_popen_named_args(self, others=None):
+        if others is None:
+            (self._pty_master, slave) = pty.openpty()
+            others = {
+                'stdin': slave,
+                }
+        super(RunPty2, self)._make_popen_named_args(others=others)
+
+
+class RunNoShellPty2(RunNoShell, RunPty2):
+    """Pty support"""
     pass
 
 
